@@ -16,10 +16,9 @@ export default function Upload() {
 
   const handleFile = (file: File) => {
     setError(null);
-    const formData = new FormData();
-    formData.append("file", file);
-    
-    uploadFile.mutate(formData as any, {
+    // Orval generates uploadFile to accept { data: { file: File } }
+    // and builds the multipart FormData internally
+    uploadFile.mutate({ data: { file } }, {
       onSuccess: (data) => {
         setLocation(`/review/${data.id}`);
       },
