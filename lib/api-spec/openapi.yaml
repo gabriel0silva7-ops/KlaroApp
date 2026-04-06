@@ -3,13 +3,26 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Klaro - AI-powered business management platform API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: uploads
+    description: File upload and parsing
+  - name: parsed-records
+    description: Parsed record review and management
+  - name: transactions
+    description: Confirmed business transactions
+  - name: insights
+    description: Business insights and recommendations
+  - name: dashboard
+    description: Dashboard summary data
+
 paths:
   /healthz:
     get:
@@ -24,6 +37,459 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ─── Auth ────────────────────────────────────────────────────────────────────
+  /auth/signup:
+    post:
+      operationId: signup
+      tags: [auth]
+      summary: Create a new user account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignupBody"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Log in with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Log out current session
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get the currently authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Uploads ──────────────────────────────────────────────────────────────
+  /uploads:
+    get:
+      operationId: listUploads
+      tags: [uploads]
+      summary: List all uploads for the current user
+      responses:
+        "200":
+          description: List of uploads
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RawInput"
+
+    post:
+      operationId: uploadFile
+      tags: [uploads]
+      summary: Upload and parse a file
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+                - file
+      responses:
+        "201":
+          description: File uploaded and parsed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RawInput"
+        "400":
+          description: Invalid file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /uploads/{id}:
+    get:
+      operationId: getUpload
+      tags: [uploads]
+      summary: Get a specific upload with its parsed records
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Upload detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RawInputDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      operationId: deleteUpload
+      tags: [uploads]
+      summary: Delete an upload and its parsed records
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Parsed Records ──────────────────────────────────────────────────────────
+  /parsed-records:
+    get:
+      operationId: listParsedRecords
+      tags: [parsed-records]
+      summary: List parsed records for review (unconfirmed by default)
+      parameters:
+        - name: rawInputId
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+        - name: confirmed
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: List of parsed records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ParsedRecord"
+
+  /parsed-records/{id}:
+    patch:
+      operationId: updateParsedRecord
+      tags: [parsed-records]
+      summary: Update a parsed record (edit extracted data)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateParsedRecordBody"
+      responses:
+        "200":
+          description: Updated record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParsedRecord"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      operationId: deleteParsedRecord
+      tags: [parsed-records]
+      summary: Delete a parsed record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /parsed-records/bulk:
+    post:
+      operationId: createParsedRecords
+      tags: [parsed-records]
+      summary: Bulk create parsed records (for adding rows manually during review)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                records:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/CreateParsedRecordBody"
+                rawInputId:
+                  type: integer
+              required:
+                - records
+                - rawInputId
+      responses:
+        "201":
+          description: Created records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ParsedRecord"
+
+  /parsed-records/confirm:
+    post:
+      operationId: confirmParsedRecords
+      tags: [parsed-records]
+      summary: Confirm parsed records and create final transactions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rawInputId:
+                  type: integer
+              required:
+                - rawInputId
+      responses:
+        "200":
+          description: Transactions created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfirmResult"
+        "400":
+          description: No records to confirm
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Transactions ─────────────────────────────────────────────────────────────
+  /transactions:
+    get:
+      operationId: listTransactions
+      tags: [transactions]
+      summary: List confirmed transactions for the current user
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: List of transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transaction"
+
+  /transactions/{id}:
+    delete:
+      operationId: deleteTransaction
+      tags: [transactions]
+      summary: Delete a transaction
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Insights ─────────────────────────────────────────────────────────────────
+  /insights:
+    get:
+      operationId: listInsights
+      tags: [insights]
+      summary: List business insights for the current user
+      responses:
+        "200":
+          description: List of insights
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Insight"
+
+  /insights/generate:
+    post:
+      operationId: generateInsights
+      tags: [insights]
+      summary: Generate new insights from current transaction data
+      responses:
+        "200":
+          description: Generated insights
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Insight"
+
+  # ─── Dashboard ───────────────────────────────────────────────────────────────
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get high-level business metrics summary
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/monthly-trend:
+    get:
+      operationId: getMonthlyTrend
+      tags: [dashboard]
+      summary: Get income vs expenses trend by month
+      responses:
+        "200":
+          description: Monthly trend data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MonthlyTrendPoint"
+
+  /dashboard/by-category:
+    get:
+      operationId: getTransactionsByCategory
+      tags: [dashboard]
+      summary: Get transaction totals grouped by category
+      responses:
+        "200":
+          description: Category breakdown
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CategoryBreakdown"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +500,351 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+
+    # ─── Auth Schemas ──────────────────────────────────────────────────────────
+    SignupBody:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+      required:
+        - name
+        - email
+        - password
+
+    LoginBody:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required:
+        - email
+        - password
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - email
+        - createdAt
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        message:
+          type: string
+      required:
+        - user
+        - message
+
+    # ─── Upload Schemas ────────────────────────────────────────────────────────
+    RawInput:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        fileName:
+          type: string
+        fileType:
+          type: string
+        filePath:
+          type: string
+        processingStatus:
+          type: string
+          enum: [pending, processing, done, failed]
+        parsedRecordCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - userId
+        - fileName
+        - fileType
+        - filePath
+        - processingStatus
+        - parsedRecordCount
+        - createdAt
+
+    RawInputDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        fileName:
+          type: string
+        fileType:
+          type: string
+        filePath:
+          type: string
+        processingStatus:
+          type: string
+          enum: [pending, processing, done, failed]
+        parsedRecords:
+          type: array
+          items:
+            $ref: "#/components/schemas/ParsedRecord"
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - userId
+        - fileName
+        - fileType
+        - filePath
+        - processingStatus
+        - parsedRecords
+        - createdAt
+
+    # ─── Parsed Record Schemas ─────────────────────────────────────────────────
+    ParsedRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+        rawInputId:
+          type: integer
+        userId:
+          type: integer
+        date:
+          type: string
+        description:
+          type: string
+        amount:
+          type: number
+        type:
+          type: string
+          enum: [income, expense]
+        category:
+          type: string
+        quantity:
+          type: ["number", "null"]
+        confidence:
+          type: ["number", "null"]
+        isConfirmed:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - rawInputId
+        - userId
+        - date
+        - description
+        - amount
+        - type
+        - category
+        - isConfirmed
+        - createdAt
+
+    CreateParsedRecordBody:
+      type: object
+      properties:
+        date:
+          type: string
+        description:
+          type: string
+        amount:
+          type: number
+        type:
+          type: string
+          enum: [income, expense]
+        category:
+          type: string
+        quantity:
+          type: ["number", "null"]
+      required:
+        - date
+        - description
+        - amount
+        - type
+        - category
+
+    UpdateParsedRecordBody:
+      type: object
+      properties:
+        date:
+          type: string
+        description:
+          type: string
+        amount:
+          type: number
+        type:
+          type: string
+          enum: [income, expense]
+        category:
+          type: string
+        quantity:
+          type: ["number", "null"]
+
+    ConfirmResult:
+      type: object
+      properties:
+        confirmedCount:
+          type: integer
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+      required:
+        - confirmedCount
+        - transactions
+
+    # ─── Transaction Schemas ───────────────────────────────────────────────────
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        date:
+          type: string
+        description:
+          type: string
+        amount:
+          type: number
+        type:
+          type: string
+          enum: [income, expense]
+        category:
+          type: string
+        quantity:
+          type: ["number", "null"]
+        sourceRawInputId:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - userId
+        - date
+        - description
+        - amount
+        - type
+        - category
+        - createdAt
+
+    # ─── Insight Schemas ───────────────────────────────────────────────────────
+    Insight:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        recommendation:
+          type: string
+        periodLabel:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - userId
+        - title
+        - description
+        - recommendation
+        - periodLabel
+        - createdAt
+
+    # ─── Dashboard Schemas ─────────────────────────────────────────────────────
+    DashboardSummary:
+      type: object
+      properties:
+        totalIncome:
+          type: number
+        totalExpenses:
+          type: number
+        netBalance:
+          type: number
+        transactionCount:
+          type: integer
+        uploadCount:
+          type: integer
+        topCategory:
+          type: ["string", "null"]
+      required:
+        - totalIncome
+        - totalExpenses
+        - netBalance
+        - transactionCount
+        - uploadCount
+
+    MonthlyTrendPoint:
+      type: object
+      properties:
+        month:
+          type: string
+        income:
+          type: number
+        expenses:
+          type: number
+      required:
+        - month
+        - income
+        - expenses
+
+    CategoryBreakdown:
+      type: object
+      properties:
+        category:
+          type: string
+        total:
+          type: number
+        count:
+          type: integer
+      required:
+        - category
+        - total
+        - count

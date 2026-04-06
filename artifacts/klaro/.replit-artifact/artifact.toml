@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Klaro"
+version = "1.0.0"
+id = "artifacts/klaro"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22284
+
+[services.development]
+run = "pnpm --filter @workspace/klaro run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/klaro", "run", "build" ]
+publicDir = "artifacts/klaro/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22284"
+BASE_PATH = "/"
