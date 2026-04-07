@@ -1,0 +1,123 @@
+import { Feather } from "@expo/vector-icons";
+import React from "react";
+import { StyleSheet, Text, View } from "react-native";
+import { useColors } from "@/hooks/useColors";
+
+interface TransactionRowProps {
+  description: string;
+  amount: number;
+  type: "income" | "expense";
+  category: string;
+  date: string;
+}
+
+export function TransactionRow({
+  description,
+  amount,
+  type,
+  category,
+  date,
+}: TransactionRowProps) {
+  const colors = useColors();
+  const isIncome = type === "income";
+
+  const formattedAmount = new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(amount);
+
+  const formattedDate = (() => {
+    try {
+      return new Date(date).toLocaleDateString("pt-BR", {
+        day: "2-digit",
+        month: "short",
+      });
+    } catch {
+      return date;
+    }
+  })();
+
+  return (
+    <View
+      style={[
+        styles.row,
+        {
+          backgroundColor: colors.card,
+          borderRadius: colors.radius,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.iconWrap,
+          {
+            backgroundColor: isIncome
+              ? `${colors.income}22`
+              : `${colors.expense}22`,
+            borderRadius: 10,
+          },
+        ]}
+      >
+        <Feather
+          name={isIncome ? "arrow-down-left" : "arrow-up-right"}
+          size={18}
+          color={isIncome ? colors.income : colors.expense}
+        />
+      </View>
+      <View style={styles.info}>
+        <Text
+          style={[styles.description, { color: colors.foreground }]}
+          numberOfLines={1}
+        >
+          {description}
+        </Text>
+        <Text style={[styles.category, { color: colors.mutedForeground }]}>
+          {category} · {formattedDate}
+        </Text>
+      </View>
+      <Text
+        style={[
+          styles.amount,
+          { color: isIncome ? colors.income : colors.expense },
+        ]}
+      >
+        {isIncome ? "+" : "-"}
+        {formattedAmount}
+      </Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    gap: 12,
+  },
+  iconWrap: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  info: {
+    flex: 1,
+    gap: 3,
+  },
+  description: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+  },
+  category: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    textTransform: "capitalize",
+  },
+  amount: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+  },
+});

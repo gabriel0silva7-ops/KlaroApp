@@ -2,21 +2,22 @@
 
 ## Overview
 
-Klaro is a full-stack web application that lets small business owners upload business data (bank statements, spreadsheets, photos), have AI extract and structure the data, review/edit the extracted records, and see dashboards + insights.
+Klaro is a full-stack business management platform for small/medium Brazilian businesses. Users upload financial data (CSV, XLSX, PDF, images), the system extracts and structures the data, users review/confirm records, and the app shows dashboards with business metrics and actionable insights. Available as both a web app and a React Native mobile app.
 
 ## Stack
 
 - **Monorepo tool**: pnpm workspaces
 - **Node.js version**: 24
 - **Package manager**: pnpm
-- **Frontend**: React + Vite + TypeScript (artifacts/klaro)
-- **Styling**: Tailwind CSS (dark theme: black / dark gray / neon green)
-- **Routing**: Wouter
-- **Data fetching**: TanStack React Query (generated hooks)
+- **Web frontend**: React + Vite + TypeScript (artifacts/klaro)
+- **Mobile app**: React Native + Expo (artifacts/klaro-mobile)
+- **Styling**: Tailwind CSS web / React Native StyleSheet mobile (dark theme: black / dark gray / neon green #39FF14)
+- **Routing**: Wouter (web) / Expo Router (mobile)
+- **Data fetching**: TanStack React Query (generated hooks, shared via @workspace/api-client-react)
 - **Backend**: Express 5 + TypeScript (artifacts/api-server)
 - **ORM**: Drizzle ORM
 - **Database**: PostgreSQL
-- **Auth**: Session-based (express-session + connect-pg-simple + PostgreSQL sessions table)
+- **Auth**: Session-based for web (express-session + connect-pg-simple) / JWT Bearer tokens for mobile (jsonwebtoken)
 - **File storage**: Local filesystem abstraction (artifacts/api-server/src/lib/storage.ts)
 - **API contract**: OpenAPI 3.1 + Orval codegen
 - **Validation**: Zod (via drizzle-zod and orval)
@@ -36,13 +37,22 @@ Klaro is a full-stack web application that lets small business owners upload bus
 ```
 artifacts/
   api-server/src/
-    routes/      # auth, uploads, parsed-records, transactions, insights, dashboard
+    routes/      # auth (+ JWT token endpoints), uploads, parsed-records, transactions, insights, dashboard
     lib/         # storage.ts (S3-swappable), parser.ts (CSV/XLSX/PDF/image), insights-engine.ts
-    middlewares/ # auth.ts (requireAuth session middleware)
+    middlewares/ # auth.ts (requireAuth: accepts session OR Bearer JWT)
   klaro/src/
     pages/       # Landing, Login, Signup, Dashboard, Upload, Review, Transactions, Insights
     components/  # Layout, Sidebar, shared UI components
     hooks/       # use-auth and other custom hooks
+  klaro-mobile/
+    app/
+      (auth)/    # login.tsx, signup.tsx (JWT auth, no cookies)
+      (tabs)/    # index.tsx (Dashboard), transactions.tsx, upload.tsx, insights.tsx
+      review/    # [id].tsx (parsed records review + confirm)
+      index.tsx  # auth gate redirect
+    contexts/    # AuthContext.tsx (JWT stored in AsyncStorage)
+    constants/   # colors.ts (neon green #39FF14, black bg, dark gray cards)
+    components/  # KlaroButton, KlaroInput, MetricCard, TransactionRow
 lib/
   api-spec/      # openapi.yaml — single source of truth for all API contracts
   api-client-react/src/generated/  # React Query hooks (generated, do not edit)

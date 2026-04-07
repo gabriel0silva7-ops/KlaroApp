@@ -1,0 +1,27 @@
+kind = "mobile"
+previewPath = "/klaro-mobile/"
+title = "Klaro Mobile"
+version = "1.0.0"
+id = "artifacts/klaro-mobile"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+ensurePreviewReachable = "/status"
+name = "expo"
+paths = [ "/klaro-mobile/" ]
+localPort = 19823
+
+[services.development]
+run = "pnpm --filter @workspace/klaro-mobile run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/klaro-mobile", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/klaro-mobile", "run", "serve" ]
+
+[services.env]
+PORT = "19823"
+BASE_PATH = "/klaro-mobile/"

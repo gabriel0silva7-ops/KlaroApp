@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "1Lis9BOHBjcarLZNk2yd0"
+uri = "file://artifacts/klaro-mobile/assets/images/icon.png"
+type = "image"
+title = "klaro app icon neon green"

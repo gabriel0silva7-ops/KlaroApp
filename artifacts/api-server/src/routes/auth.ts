@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { SignupBody, LoginBody } from "@workspace/api-zod";
-import { requireAuth } from "../middlewares/auth";
+import { requireAuth, signJwt } from "../middlewares/auth";
 
 const router = Router();
 
@@ -17,7 +17,6 @@ router.post("/auth/signup", async (req, res): Promise<void> => {
 
   const { name, email, password } = parsed.data;
 
-  // Check for existing user
   const [existing] = await db.select().from(usersTable).where(eq(usersTable.email, email));
   if (existing) {
     res.status(409).json({ error: "Este email já está cadastrado." });
@@ -62,6 +61,60 @@ router.post("/auth/login", async (req, res): Promise<void> => {
 
   const { passwordHash: _, ...safeUser } = user;
   res.json({ user: safeUser, message: "Login realizado com sucesso!" });
+});
+
+// POST /auth/token  — mobile: returns a signed JWT
+router.post("/auth/token", async (req, res): Promise<void> => {
+  const parsed = LoginBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const { email, password } = parsed.data;
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email));
+  if (!user) {
+    res.status(401).json({ error: "Email ou senha inválidos." });
+    return;
+  }
+
+  const valid = await bcrypt.compare(password, user.passwordHash);
+  if (!valid) {
+    res.status(401).json({ error: "Email ou senha inválidos." });
+    return;
+  }
+
+  const token = signJwt(user.id);
+  const { passwordHash: _, ...safeUser } = user;
+
+  res.json({ token, user: safeUser, message: "Login realizado com sucesso!" });
+});
+
+// POST /auth/token/signup — mobile: creates account and returns JWT
+router.post("/auth/token/signup", async (req, res): Promise<void> => {
+  const parsed = SignupBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const { name, email, password } = parsed.data;
+
+  const [existing] = await db.select().from(usersTable).where(eq(usersTable.email, email));
+  if (existing) {
+    res.status(409).json({ error: "Este email já está cadastrado." });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  const [user] = await db
+    .insert(usersTable)
+    .values({ name, email, passwordHash })
+    .returning({ id: usersTable.id, name: usersTable.name, email: usersTable.email, createdAt: usersTable.createdAt });
+
+  const token = signJwt(user.id);
+  res.status(201).json({ token, user, message: "Conta criada com sucesso!" });
 });
 
 // POST /auth/logout

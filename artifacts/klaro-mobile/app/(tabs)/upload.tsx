@@ -1,0 +1,384 @@
+import { Feather } from "@expo/vector-icons";
+import { useListUploads } from "@workspace/api-client-react";
+import * as DocumentPicker from "expo-document-picker";
+import * as Haptics from "expo-haptics";
+import { router } from "expo-router";
+import React, { useState } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  Platform,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useColors } from "@/hooks/useColors";
+
+function UploadItem({
+  item,
+}: {
+  item: {
+    id: number;
+    fileName: string;
+    fileType: string;
+    processingStatus: string;
+    parsedRecordCount: number;
+    createdAt: string;
+  };
+}) {
+  const colors = useColors();
+  const isDone = item.processingStatus === "done";
+  const isFailed = item.processingStatus === "failed";
+
+  return (
+    <Pressable
+      onPress={() => {
+        if (isDone) router.push(`/review/${item.id}`);
+      }}
+      style={({ pressed }) => [
+        styles.uploadItem,
+        {
+          backgroundColor: colors.card,
+          borderRadius: colors.radius,
+          borderWidth: 1,
+          borderColor: colors.border,
+          opacity: pressed ? 0.8 : 1,
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.fileIcon,
+          {
+            backgroundColor: `${colors.primary}22`,
+            borderRadius: 10,
+          },
+        ]}
+      >
+        <Feather name="file-text" size={20} color={colors.primary} />
+      </View>
+      <View style={styles.fileInfo}>
+        <Text
+          style={[styles.fileName, { color: colors.foreground }]}
+          numberOfLines={1}
+        >
+          {item.fileName}
+        </Text>
+        <Text style={[styles.fileMeta, { color: colors.mutedForeground }]}>
+          {item.parsedRecordCount} registros ·{" "}
+          {new Date(item.createdAt).toLocaleDateString("pt-BR")}
+        </Text>
+      </View>
+      <View
+        style={[
+          styles.statusBadge,
+          {
+            backgroundColor: isDone
+              ? `${colors.income}22`
+              : isFailed
+                ? `${colors.expense}22`
+                : `${colors.primary}22`,
+            borderRadius: 8,
+          },
+        ]}
+      >
+        <Text
+          style={[
+            styles.statusText,
+            {
+              color: isDone
+                ? colors.income
+                : isFailed
+                  ? colors.expense
+                  : colors.primary,
+            },
+          ]}
+        >
+          {isDone ? "Pronto" : isFailed ? "Falhou" : "Processando"}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+export default function UploadScreen() {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+
+  const { data: uploads, isLoading, refetch } = useListUploads();
+
+  const baseUrl = process.env.EXPO_PUBLIC_DOMAIN
+    ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
+    : "";
+
+  async function handlePick() {
+    setUploadError("");
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          "text/csv",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/vnd.ms-excel",
+          "application/pdf",
+          "image/*",
+        ],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled) return;
+
+      const file = result.assets[0];
+      if (!file) return;
+
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      setUploading(true);
+
+      const formData = new FormData();
+      formData.append("file", {
+        uri: file.uri,
+        name: file.name,
+        type: file.mimeType ?? "application/octet-stream",
+      } as unknown as Blob);
+
+      const res = await fetch(`${baseUrl}/api/uploads`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setUploadError(data.error ?? "Erro ao enviar arquivo.");
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        return;
+      }
+
+      const upload = await res.json();
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await refetch();
+      router.push(`/review/${upload.id}`);
+    } catch {
+      setUploadError("Erro ao selecionar arquivo.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
+
+  return (
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      {/* Upload CTA */}
+      <View
+        style={[
+          styles.uploadZone,
+          {
+            marginTop: topPad + 16,
+            marginHorizontal: 20,
+            backgroundColor: colors.card,
+            borderRadius: colors.radius,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderStyle: "dashed",
+          },
+        ]}
+      >
+        {uploading ? (
+          <ActivityIndicator color={colors.primary} size="large" />
+        ) : (
+          <>
+            <View
+              style={[
+                styles.uploadIconWrap,
+                {
+                  backgroundColor: `${colors.primary}22`,
+                  borderRadius: 20,
+                },
+              ]}
+            >
+              <Feather name="upload-cloud" size={32} color={colors.primary} />
+            </View>
+            <Text style={[styles.uploadTitle, { color: colors.foreground }]}>
+              Enviar arquivo
+            </Text>
+            <Text
+              style={[styles.uploadSub, { color: colors.mutedForeground }]}
+            >
+              CSV, XLSX, PDF ou imagem
+            </Text>
+            <Pressable
+              onPress={handlePick}
+              style={({ pressed }) => [
+                styles.uploadBtn,
+                {
+                  backgroundColor: colors.primary,
+                  borderRadius: colors.radius,
+                  opacity: pressed ? 0.8 : 1,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.uploadBtnText,
+                  { color: colors.primaryForeground },
+                ]}
+              >
+                Selecionar arquivo
+              </Text>
+            </Pressable>
+          </>
+        )}
+        {uploadError ? (
+          <Text style={[styles.errorText, { color: colors.destructive }]}>
+            {uploadError}
+          </Text>
+        ) : null}
+      </View>
+
+      {/* Upload history */}
+      <Text
+        style={[
+          styles.historyTitle,
+          { color: colors.foreground, marginHorizontal: 20, marginTop: 24 },
+        ]}
+      >
+        Histórico
+      </Text>
+
+      {isLoading ? (
+        <View style={styles.loadingBox}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      ) : (
+        <FlatList
+          data={uploads ?? []}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={({ item }) => <UploadItem item={item} />}
+          scrollEnabled={!!(uploads && uploads.length > 0)}
+          refreshControl={
+            <RefreshControl
+              refreshing={isLoading}
+              onRefresh={refetch}
+              tintColor={colors.primary}
+            />
+          }
+          contentContainerStyle={[
+            styles.list,
+            {
+              paddingBottom:
+                insets.bottom + (Platform.OS === "web" ? 34 : 0) + 100,
+            },
+          ]}
+          ListEmptyComponent={
+            <View style={styles.emptyBox}>
+              <Feather name="folder" size={32} color={colors.mutedForeground} />
+              <Text
+                style={[styles.emptyText, { color: colors.mutedForeground }]}
+              >
+                Nenhum upload ainda
+              </Text>
+            </View>
+          }
+        />
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+  uploadZone: {
+    padding: 28,
+    alignItems: "center",
+    gap: 10,
+  },
+  uploadIconWrap: {
+    width: 64,
+    height: 64,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  uploadTitle: {
+    fontSize: 17,
+    fontFamily: "Inter_600SemiBold",
+    marginTop: 4,
+  },
+  uploadSub: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+  },
+  uploadBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    marginTop: 8,
+  },
+  uploadBtnText: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+  },
+  errorText: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+  },
+  historyTitle: {
+    fontSize: 17,
+    fontFamily: "Inter_600SemiBold",
+    marginBottom: 8,
+  },
+  list: {
+    gap: 8,
+    paddingHorizontal: 20,
+  },
+  loadingBox: {
+    paddingTop: 40,
+    alignItems: "center",
+  },
+  uploadItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    gap: 12,
+  },
+  fileIcon: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fileInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  fileName: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+  },
+  fileMeta: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  statusText: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+  },
+  emptyBox: {
+    paddingTop: 40,
+    alignItems: "center",
+    gap: 10,
+  },
+  emptyText: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+  },
+});
