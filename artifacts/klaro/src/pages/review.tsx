@@ -175,8 +175,15 @@ export default function Review() {
                 ))}
                 {(!upload?.parsedRecords || upload.parsedRecords.length === 0) && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                      Nenhum registro extraído ou todos foram excluídos.
+                    <TableCell colSpan={6} className="text-center py-10">
+                      <div className="space-y-2">
+                        <p className="text-white font-medium">Nenhum registro encontrado neste arquivo</p>
+                        <p className="text-muted-foreground text-sm max-w-md mx-auto">
+                          O sistema não conseguiu identificar colunas de data, descrição e valor no arquivo.
+                          Verifique se o arquivo tem uma linha de cabeçalho com esses campos e tente novamente.
+                          Formatos suportados: CSV, Excel (.xlsx/.xls).
+                        </p>
+                      </div>
                     </TableCell>
                   </TableRow>
                 )}

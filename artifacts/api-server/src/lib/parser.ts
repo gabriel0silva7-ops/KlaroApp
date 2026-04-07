@@ -1,14 +1,11 @@
 import fs from "fs";
 import path from "path";
 import * as XLSX from "xlsx";
+import { logger } from "./logger";
 
 /**
  * Parsing pipeline — CSV and XLSX use real parsing.
  * PDF and images still need OCR/LLM integration (marked as TODO).
- *
- * TODO: Replace extractPDFText with pdf-parse for real PDF extraction.
- * TODO: Replace extractImageText with an OCR service (Tesseract, Google Vision, AWS Textract).
- * TODO: Replace rawTextToRecords with LLM-based structured extraction (GPT-4o, Claude).
  */
 
 export interface ExtractedRecord {
@@ -35,16 +32,16 @@ function norm(s: string): string {
 // ─── Category classification ─────────────────────────────────────────────────
 
 const CATEGORY_RULES: { keywords: string[]; category: string }[] = [
-  { keywords: ["vend", "receita", "cliente", "sale", "fatura", "nota fiscal", "nf-e", "nfe"], category: "Vendas" },
+  { keywords: ["vend", "receita", "cliente", "sale", "fatura", "nota fiscal", "nf-e", "nfe", "recebimento"], category: "Vendas" },
   { keywords: ["serv", "consultor", "manutencao", "suporte", "prestacao", "tecnico"], category: "Serviços" },
   { keywords: ["aluguel", "locacao", "rent", "imovel", "condominio"], category: "Aluguel" },
-  { keywords: ["market", "publicidad", "propaganda", "anuncio", "facebook ads", "google ads", "instagram"], category: "Marketing" },
-  { keywords: ["salario", "folha", "funcionario", "pagamento pessoal", "rh", "rescisao", "ferias", "13"], category: "Folha de Pagamento" },
+  { keywords: ["market", "publicidad", "propaganda", "anuncio", "facebook", "google ads", "instagram"], category: "Marketing" },
+  { keywords: ["salario", "folha", "funcionario", "pagamento pessoal", "rh", "rescisao", "ferias"], category: "Folha de Pagamento" },
   { keywords: ["fornecedor", "compra", "estoque", "material", "produto", "insumo", "mercadoria"], category: "Fornecedores" },
   { keywords: ["luz", "agua", "energia", "internet", "telefone", "celular", "eletricidade", "esgoto", "gas"], category: "Utilidades" },
-  { keywords: ["imposto", "taxa", "tributo", "cnpj", "cpf", "ir ", "irpj", "csll", "pis", "cofins", "iss", "icms", "darf", "das ", "simples"], category: "Impostos" },
-  { keywords: ["equipamento", "maquina", "computador", "hardware", "software", "notebook", "celular", "impressora"], category: "Equipamentos" },
-  { keywords: ["boleto", "parcela", "emprestimo", "financiamento", "juros", "banco"], category: "Financeiro" },
+  { keywords: ["imposto", "taxa", "tributo", "cnpj", "cpf", "irpj", "csll", "pis", "cofins", "iss", "icms", "darf", "das ", "simples"], category: "Impostos" },
+  { keywords: ["equipamento", "maquina", "computador", "hardware", "software", "notebook", "impressora"], category: "Equipamentos" },
+  { keywords: ["boleto", "parcela", "emprestimo", "financiamento", "juros", "banco", "pix", "ted", "doc", "transferencia"], category: "Financeiro" },
 ];
 
 function classifyCategory(description: string): string {
@@ -70,8 +67,8 @@ function classifyType(amount: number, description: string): "income" | "expense"
 // ─── Date normalization ───────────────────────────────────────────────────────
 
 /**
- * Convert any date value Excel or user might provide to "YYYY-MM-DD".
- * Handles: Excel serial ints, JS Date, DD/MM/YYYY, DD/MM/YY, M/D/YY, M/D/YYYY, ISO strings.
+ * Convert any date value to "YYYY-MM-DD".
+ * Handles: Excel serial ints, JS Date, DD/MM/YYYY, DD/MM/YY, M/D/YY, ISO, with/without time.
  */
 function normalizeDate(raw: unknown): string {
   const today = new Date().toISOString().split("T")[0];
@@ -95,34 +92,33 @@ function normalizeDate(raw: unknown): string {
 
   const s = String(raw).trim();
 
-  // Already ISO YYYY-MM-DD
+  // Already ISO YYYY-MM-DD (with or without time)
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
 
-  // Brazilian DD/MM/YYYY or DD/MM/YY or DD-MM-YYYY or DD-MM-YY
-  const brFull = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-  if (brFull) {
-    let [, part1, part2, year] = brFull;
-    const y = year.length === 2 ? `20${year}` : year;
-    const p1 = parseInt(part1, 10);
-    const p2 = parseInt(part2, 10);
-    // If part1 > 12, it must be the day (DD/MM)
-    // If part2 > 12, it must be the day in the wrong position — swap
-    if (p1 > 12) {
-      // DD/MM/YYYY
-      return `${y}-${part2.padStart(2, "0")}-${part1.toString().padStart(2, "0")}`;
-    } else {
-      // Could be MM/DD or DD/MM — default to DD/MM (Brazilian standard)
-      // Unless month part2 > 12, meaning it's actually the day
-      if (p2 > 12) {
-        // part2 is day, part1 is month (American M/D)
-        return `${y}-${part1.toString().padStart(2, "0")}-${part2.toString().padStart(2, "0")}`;
-      }
-      // Default: treat as DD/MM/YYYY (Brazilian)
-      return `${y}-${part2.padStart(2, "0")}-${part1.toString().padStart(2, "0")}`;
+  // Strip time component if present: "01/01/2025 10:30:00" → "01/01/2025"
+  const noTime = s.split(/\s+/)[0];
+
+  // DD/MM/YYYY, DD/MM/YY, DD-MM-YYYY, DD-MM-YY, M/D/YY, M/D/YYYY
+  const parts = noTime.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+  if (parts) {
+    let [, p1, p2, yr] = parts;
+    const year = yr.length === 2 ? `20${yr}` : yr;
+    const n1 = parseInt(p1, 10);
+    const n2 = parseInt(p2, 10);
+
+    // If p1 > 12 → definitely day (DD/MM/YYYY)
+    if (n1 > 12) {
+      return `${year}-${p2.padStart(2, "0")}-${p1.padStart(2, "0")}`;
     }
+    // If p2 > 12 → p2 is day (MM/DD/YYYY American)
+    if (n2 > 12) {
+      return `${year}-${p1.padStart(2, "0")}-${p2.padStart(2, "0")}`;
+    }
+    // Ambiguous: assume DD/MM (Brazilian standard)
+    return `${year}-${p2.padStart(2, "0")}-${p1.padStart(2, "0")}`;
   }
 
-  // Month name formats: "01 Jan 2025", "Jan 2025", etc. — let JS try
+  // Month name: "01 Jan 2025", "Jan-25", etc.
   try {
     const d = new Date(s);
     if (!isNaN(d.getTime()) && d.getFullYear() > 1970) {
@@ -133,16 +129,20 @@ function normalizeDate(raw: unknown): string {
   return today;
 }
 
+/** Returns true if a string looks like a date */
+function looksLikeDate(s: string): boolean {
+  const n = String(s).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(n)) return true;
+  if (/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/.test(n)) return true;
+  if (!isNaN(Date.parse(n)) && n.length > 4) return true;
+  return false;
+}
+
 // ─── Amount parsing ───────────────────────────────────────────────────────────
 
 /**
- * Parse a value to a float, handling:
- * - Already a number
- * - R$ prefix  
- * - Brazilian format: 1.234,56
- * - European format: 1.234.567,89
- * - Plain decimal: 1234.56
- * - Negative in parentheses: (1234.56)
+ * Parse any numeric representation to float.
+ * Handles: R$ prefix, Brazilian/European formatting, parentheses-negatives.
  */
 function parseAmount(raw: unknown): number {
   if (typeof raw === "number") return raw;
@@ -150,21 +150,21 @@ function parseAmount(raw: unknown): number {
 
   let s = String(raw).trim();
 
-  // Negative in parentheses: (1.234,56) → -1234.56
+  // Parentheses = negative: (1.234,56) → -1234.56
   const isParenNeg = s.startsWith("(") && s.endsWith(")");
   if (isParenNeg) s = `-${s.slice(1, -1)}`;
 
-  // Remove R$, non-numeric except digits, minus, comma, dot
+  // Remove currency symbols and spaces
   s = s.replace(/R\$\s?/g, "").replace(/\s/g, "");
 
-  const negative = s.startsWith("-");
-  s = s.replace(/^-/, "");
+  const isNeg = s.startsWith("-");
+  s = s.replace(/^-/, "").replace(/^\+/, "");
 
-  // Brazilian format: 1.234.567,89 (dots as thousands, comma as decimal)
+  // Brazilian: 1.234.567,89 (dot=thousands, comma=decimal)
   if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) {
     s = s.replace(/\./g, "").replace(",", ".");
   }
-  // Comma-thousands, dot decimal: 1,234,567.89
+  // American: 1,234,567.89 (comma=thousands, dot=decimal)
   else if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) {
     s = s.replace(/,/g, "");
   }
@@ -172,17 +172,26 @@ function parseAmount(raw: unknown): number {
   else if (/^\d+,\d{1,2}$/.test(s)) {
     s = s.replace(",", ".");
   }
+  // Remove any remaining non-numeric except dot
+  else {
+    s = s.replace(/[^0-9.]/g, "");
+  }
 
   const n = parseFloat(s);
-  return isNaN(n) ? 0 : (negative || isParenNeg ? -n : n);
+  return isNaN(n) ? 0 : ((isNeg || isParenNeg) ? -n : n);
+}
+
+/** Returns true if a value looks like a numeric amount */
+function looksLikeAmount(v: unknown): boolean {
+  if (typeof v === "number") return true;
+  const s = String(v).trim().replace(/R\$\s?/g, "").replace(/\s/g, "");
+  if (!s || s === "") return false;
+  const cleaned = s.replace(/[().\-,]/g, "").replace(/^[+-]/, "");
+  return /^\d+$/.test(cleaned) && cleaned.length > 0;
 }
 
 // ─── Column detection ─────────────────────────────────────────────────────────
 
-/**
- * Given header keys, find the best match for a semantic field.
- * Uses normalized (accent-free, lowercase) comparison.
- */
 function findColumn(keys: string[], candidates: string[]): string | null {
   const normKeys = keys.map((k) => ({ orig: k, n: norm(k) }));
   for (const candidate of candidates) {
@@ -193,42 +202,111 @@ function findColumn(keys: string[], candidates: string[]): string | null {
   return null;
 }
 
+/**
+ * Smart column guesser — when headers don't match known names,
+ * inspect actual data values to identify date, description, and amount columns.
+ */
+function guessColumns(
+  keys: string[],
+  rows: Record<string, unknown>[],
+): { dateKey: string | null; descKey: string | null; amountKey: string | null } {
+  const sample = rows.slice(0, Math.min(rows.length, 5));
+
+  const dateScores: Record<string, number> = {};
+  const amountScores: Record<string, number> = {};
+  const descScores: Record<string, number> = {};
+
+  for (const key of keys) {
+    let ds = 0, as = 0, ss = 0;
+    for (const row of sample) {
+      const v = row[key];
+      if (v instanceof Date || (typeof v === "number" && v > 40000 && v < 60000)) ds += 2;
+      if (typeof v === "string" && looksLikeDate(v)) ds += 2;
+      if (looksLikeAmount(v) && !(v instanceof Date)) as += 2;
+      if (typeof v === "string" && v.trim().length > 3 && !looksLikeDate(v) && !looksLikeAmount(v)) ss += 2;
+    }
+    dateScores[key] = ds;
+    amountScores[key] = as;
+    descScores[key] = ss;
+  }
+
+  const bestDate = Object.entries(dateScores).sort((a, b) => b[1] - a[1])[0];
+  const bestAmount = Object.entries(amountScores).sort((a, b) => b[1] - a[1])[0];
+  const bestDesc = Object.entries(descScores).sort((a, b) => b[1] - a[1])[0];
+
+  return {
+    dateKey: bestDate && bestDate[1] > 0 ? bestDate[0] : null,
+    amountKey: bestAmount && bestAmount[1] > 0 ? bestAmount[0] : null,
+    descKey: bestDesc && bestDesc[1] > 0 ? bestDesc[0] : null,
+  };
+}
+
+// ─── Header row detection ─────────────────────────────────────────────────────
+
+const HEADER_HINTS = ["data", "date", "valor", "amount", "descricao", "description", "historico", "lancamento", "saldo", "credito", "debito"];
+
+function findHeaderRow(aoa: unknown[][]): number {
+  for (let i = 0; i < Math.min(aoa.length, 20); i++) {
+    const row = aoa[i];
+    if (!row || row.length < 2) continue;
+    const normalized = row.map((c) => norm(String(c ?? "")));
+    const matches = HEADER_HINTS.filter((hint) => normalized.some((n) => n.includes(hint)));
+    if (matches.length >= 2) return i;
+  }
+  return 0;
+}
+
 // ─── Rows → Records ───────────────────────────────────────────────────────────
 
-/**
- * Convert an array of raw row objects into ExtractedRecord[].
- * Auto-detects column layout for date, description, amount, type.
- */
-function rowsToRecords(rows: Record<string, unknown>[]): ExtractedRecord[] {
-  if (rows.length === 0) return [];
+function rowsToRecords(rows: Record<string, unknown>[], context: string): ExtractedRecord[] {
+  if (rows.length === 0) {
+    logger.warn({ context }, "Parser: no rows found");
+    return [];
+  }
 
   const keys = Object.keys(rows[0]);
+  logger.info({ context, keys, rowCount: rows.length }, "Parser: detected columns");
 
-  const dateKey = findColumn(keys, [
+  // Try named column detection first
+  let dateKey = findColumn(keys, [
     "data", "date", "dt", "dia", "vencimento", "lancamento", "data lancamento",
-    "data do lancamento", "data pagamento", "competencia",
+    "data do lancamento", "data pagamento", "competencia", "data de lancamento",
   ]);
-  const descKey = findColumn(keys, [
+  let descKey = findColumn(keys, [
     "descricao", "description", "historico", "memo", "lancamento", "complemento",
     "observacao", "detalhe", "documento", "favorecido", "estabelecimento", "titulo",
+    "nome", "origem",
   ]);
-  const amountKey = findColumn(keys, [
-    "valor", "value", "amount", "montante", "quantia",
+  let amountKey = findColumn(keys, [
+    "valor", "value", "amount", "montante", "quantia", "valor transacao",
   ]);
-  const typeKey = findColumn(keys, [
-    "tipo", "type", "natureza", "dc", "d/c", "operacao",
-  ]);
-  const creditKey = findColumn(keys, [
-    "credito", "credit", "entrada", "recebimento", "receita",
-  ]);
-  const debitKey = findColumn(keys, [
-    "debito", "debit", "saida", "despesa", "pagamento",
-  ]);
+  const typeKey = findColumn(keys, ["tipo", "type", "natureza", "dc", "d/c", "operacao"]);
+  const creditKey = findColumn(keys, ["credito", "credit", "entrada", "recebimento"]);
+  const debitKey = findColumn(keys, ["debito", "debit", "saida", "despesa"]);
+
+  logger.info({ context, dateKey, descKey, amountKey, typeKey, creditKey, debitKey }, "Parser: column mapping");
+
+  // If essential columns weren't found by name, guess from data
+  if (!dateKey || !amountKey) {
+    const guessed = guessColumns(keys, rows);
+    if (!dateKey && guessed.dateKey) {
+      dateKey = guessed.dateKey;
+      logger.info({ context, guessedDateKey: dateKey }, "Parser: guessed date column from data");
+    }
+    if (!amountKey && guessed.amountKey) {
+      amountKey = guessed.amountKey;
+      logger.info({ context, guessedAmountKey: amountKey }, "Parser: guessed amount column from data");
+    }
+    if (!descKey && guessed.descKey) {
+      descKey = guessed.descKey;
+      logger.info({ context, guessedDescKey: descKey }, "Parser: guessed description column from data");
+    }
+  }
 
   const records: ExtractedRecord[] = [];
+  let skippedZero = 0;
 
   for (const row of rows) {
-    // Skip completely empty rows
     const vals = Object.values(row).map((v) => String(v).trim()).filter(Boolean);
     if (vals.length === 0) continue;
 
@@ -262,28 +340,24 @@ function rowsToRecords(rows: Record<string, unknown>[]): ExtractedRecord[] {
       } else if (amountKey) {
         const raw = parseAmount(row[amountKey]);
         amount = Math.abs(raw);
-        if (raw < 0) inferredType = "expense";
-        else if (raw > 0) inferredType = "income";
+        inferredType = raw < 0 ? "expense" : raw > 0 ? "income" : null;
       }
     } else if (amountKey) {
       const raw = parseAmount(row[amountKey]);
       amount = Math.abs(raw);
-      if (raw < 0) inferredType = "expense";
-      else if (raw > 0) inferredType = "income";
+      inferredType = raw < 0 ? "expense" : raw > 0 ? "income" : null;
     }
 
-    // Skip rows with no meaningful amount
-    if (amount === 0) continue;
+    if (amount === 0) {
+      skippedZero++;
+      continue;
+    }
 
-    // Determine type
     let type: "income" | "expense";
     if (typeKey) {
       const rawType = norm(String(row[typeKey] ?? ""));
-      if (rawType === "c" || rawType === "credito" || rawType.includes("entrada") || rawType.includes("recebimento") || rawType === "income") {
-        type = "income";
-      } else {
-        type = "expense";
-      }
+      type = (rawType === "c" || rawType.startsWith("cred") || rawType.includes("entrada") || rawType.includes("recebimento") || rawType === "income")
+        ? "income" : "expense";
     } else if (inferredType) {
       type = inferredType;
     } else {
@@ -300,123 +374,111 @@ function rowsToRecords(rows: Record<string, unknown>[]): ExtractedRecord[] {
     });
   }
 
+  logger.info({ context, extracted: records.length, skippedZero }, "Parser: extraction complete");
   return records;
-}
-
-// ─── Header row detection ─────────────────────────────────────────────────────
-
-/**
- * Many bank exports have metadata lines before the actual header row.
- * This finds the first row that looks like a header (has date + description + amount-like columns).
- */
-function findHeaderRow(allRows: unknown[][]): number {
-  const HEADER_HINTS = ["data", "date", "valor", "amount", "descricao", "description", "historico", "lancamento", "saldo"];
-  for (let i = 0; i < Math.min(allRows.length, 15); i++) {
-    const row = allRows[i];
-    const normalized = row.map((c) => norm(String(c ?? "")));
-    const matches = HEADER_HINTS.filter((hint) => normalized.some((n) => n.includes(hint)));
-    if (matches.length >= 2) return i;
-  }
-  return 0; // fallback to row 0
 }
 
 // ─── Public parsers ───────────────────────────────────────────────────────────
 
-/**
- * Parse CSV file content into ExtractedRecord[].
- */
-export async function parseCSV(content: string): Promise<ExtractedRecord[]> {
-  // Use xlsx to parse CSV (handles encoding and quoting uniformly)
-  const workbook = XLSX.read(content, { type: "string", raw: false, cellDates: true });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-
-  // Detect if there are metadata rows before the real header
-  const aoa: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-  const headerRowIdx = findHeaderRow(aoa);
-
-  let rows: Record<string, unknown>[];
-  if (headerRowIdx === 0) {
-    rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: false });
-  } else {
-    // Re-parse starting from the detected header row
-    const sub = aoa.slice(headerRowIdx);
-    const subSheet = XLSX.utils.aoa_to_sheet(sub);
-    rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(subSheet, { defval: "", raw: false });
+/** Re-parse a sheet starting at a detected header row */
+function parseFromHeaderRow(aoa: unknown[][], headerIdx: number): Record<string, unknown>[] {
+  if (headerIdx === 0) {
+    const sheet = XLSX.utils.aoa_to_sheet(aoa);
+    return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: false });
   }
-
-  const records = rowsToRecords(rows);
-  if (records.length > 0) return records;
-
-  // Fallback: try semicolon-delimited (common in Brazilian bank exports)
-  const csvSemicolon = content.replace(/;/g, ",");
-  const wb2 = XLSX.read(csvSemicolon, { type: "string", raw: false, cellDates: true });
-  const ws2 = wb2.Sheets[wb2.SheetNames[0]];
-  const rows2 = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws2, { defval: "", raw: false });
-  return rowsToRecords(rows2);
+  const sub = aoa.slice(headerIdx);
+  const subSheet = XLSX.utils.aoa_to_sheet(sub);
+  return XLSX.utils.sheet_to_json<Record<string, unknown>>(subSheet, { defval: "", raw: false });
 }
 
-/**
- * Parse an Excel XLSX/XLS file into ExtractedRecord[].
- */
+export async function parseCSV(content: string): Promise<ExtractedRecord[]> {
+  // Try comma-delimited first, then semicolon (Brazilian bank export)
+  for (const delimiter of [",", ";"]) {
+    try {
+      const normalized = delimiter === ";" ? content.replace(/;/g, ",") : content;
+      const wb = XLSX.read(normalized, { type: "string", raw: false, cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+      const headerIdx = findHeaderRow(aoa);
+      const rows = parseFromHeaderRow(aoa, headerIdx);
+
+      const records = rowsToRecords(rows, `CSV(${delimiter})`);
+      if (records.length > 0) return records;
+    } catch (err) {
+      logger.warn({ err, delimiter }, "Parser: CSV delimiter attempt failed");
+    }
+  }
+  return [];
+}
+
 export async function parseXLSX(filePath: string): Promise<ExtractedRecord[]> {
   const absPath = path.resolve(process.cwd(), filePath);
 
   if (!fs.existsSync(absPath)) {
+    logger.error({ absPath }, "Parser: file not found");
     throw new Error(`Arquivo não encontrado: ${absPath}`);
   }
 
-  const workbook = XLSX.readFile(absPath, { cellDates: true, raw: false });
-  const firstSheet = workbook.SheetNames[0];
-  if (!firstSheet) return [];
+  logger.info({ absPath }, "Parser: starting XLSX parse");
 
-  const sheet = workbook.Sheets[firstSheet];
+  // Try with cellDates first, then raw mode as fallback
+  for (const opts of [
+    { cellDates: true, raw: false },
+    { cellDates: false, raw: true },
+  ]) {
+    try {
+      const wb = XLSX.readFile(absPath, opts);
+      logger.info({ sheets: wb.SheetNames }, "Parser: workbook sheets");
 
-  // Check for metadata rows before the real data header
-  const aoa: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-  const headerRowIdx = findHeaderRow(aoa);
+      for (const sheetName of wb.SheetNames) {
+        const ws = wb.Sheets[sheetName];
+        const aoa: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
 
-  let rows: Record<string, unknown>[];
-  if (headerRowIdx === 0) {
-    rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: false });
-  } else {
-    // Re-parse starting from detected header
-    const sub = aoa.slice(headerRowIdx);
-    const subSheet = XLSX.utils.aoa_to_sheet(sub);
-    rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(subSheet, { defval: "", raw: false });
+        logger.info({ sheetName, totalRows: aoa.length, opts }, "Parser: sheet info");
+
+        if (aoa.length < 2) continue;
+
+        const headerIdx = findHeaderRow(aoa);
+        logger.info({ sheetName, headerIdx, headerRow: aoa[headerIdx] }, "Parser: detected header row");
+
+        const rows = parseFromHeaderRow(aoa, headerIdx);
+        const records = rowsToRecords(rows, `XLSX:${sheetName}`);
+
+        if (records.length > 0) return records;
+      }
+    } catch (err) {
+      logger.warn({ err, opts }, "Parser: XLSX parse attempt failed, trying next option");
+    }
   }
 
-  const records = rowsToRecords(rows);
-  if (records.length > 0) return records;
+  // Last resort: convert to CSV text and parse that
+  try {
+    const wb = XLSX.readFile(absPath);
+    for (const sheetName of wb.SheetNames) {
+      const csv = XLSX.utils.sheet_to_csv(wb.Sheets[sheetName]);
+      const records = await parseCSV(csv);
+      if (records.length > 0) {
+        logger.info({ sheetName }, "Parser: used CSV fallback for XLSX sheet");
+        return records;
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "Parser: all XLSX parse strategies failed");
+  }
 
-  // Fallback: try reading as CSV text
-  const csv = XLSX.utils.sheet_to_csv(sheet);
-  return parseCSV(csv);
+  return [];
 }
 
-/**
- * Extract text from a PDF.
- * TODO: Use pdf-parse:
- *   import pdfParse from 'pdf-parse';
- *   const data = await pdfParse(fs.readFileSync(filePath));
- *   return data.text;
- */
 export async function extractPDFText(_filePath: string): Promise<string> {
+  // TODO: Use pdf-parse for real PDF extraction
   return "Extrato bancário\nData;Descrição;Valor\n01/04/2025;Venda produto A;500,00\n05/04/2025;Pagamento fornecedor;-200,00\n10/04/2025;Receita serviços;1200,00";
 }
 
-/**
- * Extract text from an image via OCR.
- * TODO: Integrate Tesseract.js or Google Vision API.
- */
 export async function extractImageText(_filePath: string): Promise<string> {
+  // TODO: Integrate OCR (Tesseract.js or Google Vision)
   return "";
 }
 
-/**
- * Convert raw text (PDF/OCR output) into structured records.
- * Tries semicolon-delimited parsing first (common in Brazilian bank exports).
- * TODO: Replace with LLM-based extraction for unstructured text.
- */
 export async function rawTextToRecords(text: string): Promise<ExtractedRecord[]> {
   if (!text.trim()) return generateMockRecords(3, "Texto extraído");
   const records = await parseCSV(text);
@@ -424,10 +486,6 @@ export async function rawTextToRecords(text: string): Promise<ExtractedRecord[]>
   return generateMockRecords(3, "Texto extraído");
 }
 
-/**
- * Generate fallback placeholder records when extraction is not possible.
- * Only used for images pending OCR and broken inputs.
- */
 export function generateMockRecords(count: number = 5, source: string = "Arquivo"): ExtractedRecord[] {
   const today = new Date();
   const templates = [
@@ -437,7 +495,6 @@ export function generateMockRecords(count: number = 5, source: string = "Arquivo
     { desc: "Conta de energia", amount: 180, type: "expense" as const, cat: "Utilidades" },
     { desc: "Aluguel do espaço", amount: 2000, type: "expense" as const, cat: "Aluguel" },
   ];
-
   return templates.slice(0, Math.min(count, templates.length)).map((t, i) => {
     const d = new Date(today);
     d.setDate(today.getDate() - i * 3);
