@@ -4,6 +4,13 @@ import * as XLSX from "xlsx";
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "./logger";
 
+export interface ParseBusinessContext {
+  businessName?: string;
+  segment?: string;
+  mainProducts?: string;
+  salesChannel?: string;
+}
+
 function getAnthropicClient(): Anthropic | null {
   if (!process.env.ANTHROPIC_API_KEY) return null;
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -498,7 +505,7 @@ const IMAGE_MEDIA_TYPES: Record<string, "image/jpeg" | "image/png" | "image/gif"
   webp: "image/webp",
 };
 
-export async function extractImageText(filePath: string): Promise<string> {
+export async function extractImageText(filePath: string, ctx?: ParseBusinessContext): Promise<string> {
   const client = getAnthropicClient();
   if (!client) {
     logger.warn("ANTHROPIC_API_KEY not set — skipping image OCR");
@@ -508,6 +515,16 @@ export async function extractImageText(filePath: string): Promise<string> {
   const absPath = path.resolve(process.cwd(), filePath);
   const ext = path.extname(filePath).toLowerCase().replace(".", "");
   const mediaType = IMAGE_MEDIA_TYPES[ext] ?? "image/jpeg";
+
+  // Build optional business context hint for better OCR accuracy
+  const ctxLines: string[] = [];
+  if (ctx?.businessName) ctxLines.push(`- Nome do negócio: ${ctx.businessName}`);
+  if (ctx?.segment) ctxLines.push(`- Segmento: ${ctx.segment}`);
+  if (ctx?.mainProducts) ctxLines.push(`- Principais produtos/serviços: ${ctx.mainProducts}`);
+  if (ctx?.salesChannel) ctxLines.push(`- Canal de vendas: ${ctx.salesChannel}`);
+  const ctxSection = ctxLines.length > 0
+    ? `\nContexto do negócio (use para interpretar melhor os dados):\n${ctxLines.join("\n")}\n`
+    : "";
 
   try {
     const imageData = fs.readFileSync(absPath);
@@ -530,7 +547,7 @@ export async function extractImageText(filePath: string): Promise<string> {
 Analise esta imagem (pode ser extrato bancário, caderno de anotações, nota fiscal, recibo, etc.).
 Extraia as transações financeiras individuais e retorne SOMENTE um CSV com as colunas:
 data,descricao,valor
-
+${ctxSection}
 Regras importantes:
 - Extraia CADA linha de item individualmente. Se o mesmo produto aparece duas vezes, gere duas linhas separadas.
 - NÃO inclua linhas de total, subtotal ou resumo (ex: "Total Dia", "Total", "Saldo").

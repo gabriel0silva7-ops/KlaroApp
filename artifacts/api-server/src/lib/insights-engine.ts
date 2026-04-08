@@ -14,6 +14,19 @@ export interface GeneratedInsight {
   periodLabel: string;
 }
 
+export interface InsightBusinessContext {
+  businessName?: string;
+  segment?: string;
+  city?: string;
+  state?: string;
+  employeeCount?: number;
+  monthlyRevenueGoal?: number;
+  profitMarginGoal?: number;
+  mainProducts?: string;
+  salesChannel?: string;
+  biggestChallenge?: string;
+}
+
 interface Transaction {
   date: string;
   description: string;
@@ -109,11 +122,26 @@ ${topProducts.map((p) => `  ${p.label}: R$${p.total.toFixed(2)}`).join("\n")}`;
 
 // ─── AI-powered insights ──────────────────────────────────────────────────────
 
-async function generateWithAI(transactions: Transaction[]): Promise<GeneratedInsight[]> {
+async function generateWithAI(transactions: Transaction[], ctx?: InsightBusinessContext): Promise<GeneratedInsight[]> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const summary = buildSummary(transactions);
   const months = [...groupByMonth(transactions).keys()].sort();
   const periodLabel = `${months[0]} a ${months[months.length - 1]}`;
+
+  // Build business context section for the prompt
+  const ctxLines: string[] = [];
+  if (ctx?.businessName) ctxLines.push(`Nome do negócio: ${ctx.businessName}`);
+  if (ctx?.segment) ctxLines.push(`Segmento: ${ctx.segment}`);
+  if (ctx?.city || ctx?.state) ctxLines.push(`Localização: ${[ctx.city, ctx.state].filter(Boolean).join(", ")}`);
+  if (ctx?.employeeCount !== undefined) ctxLines.push(`Funcionários: ${ctx.employeeCount}`);
+  if (ctx?.mainProducts) ctxLines.push(`Principais produtos/serviços: ${ctx.mainProducts}`);
+  if (ctx?.salesChannel) ctxLines.push(`Canal de vendas: ${ctx.salesChannel}`);
+  if (ctx?.monthlyRevenueGoal !== undefined) ctxLines.push(`Meta de receita mensal: R$${ctx.monthlyRevenueGoal.toFixed(2)}`);
+  if (ctx?.profitMarginGoal !== undefined) ctxLines.push(`Meta de margem de lucro: ${ctx.profitMarginGoal}%`);
+  if (ctx?.biggestChallenge) ctxLines.push(`Maior desafio: ${ctx.biggestChallenge}`);
+  const ctxSection = ctxLines.length > 0
+    ? `\nPERFIL DO NEGÓCIO:\n${ctxLines.map((l) => `  ${l}`).join("\n")}\n`
+    : "";
 
   const response = await client.messages.create({
     model: "claude-sonnet-4-6",
@@ -123,7 +151,7 @@ async function generateWithAI(transactions: Transaction[]): Promise<GeneratedIns
         role: "user",
         content: `Você é um consultor financeiro especialista em pequenos e médios negócios brasileiros.
 Analise os dados financeiros abaixo e gere exatamente 5 insights práticos e acionáveis para o dono do negócio.
-
+${ctxSection}
 ${summary}
 
 Retorne SOMENTE um JSON válido com este formato (sem markdown, sem explicações):
@@ -141,6 +169,7 @@ Diretrizes:
 - Cite números reais do resumo (R$, %, meses)
 - Cada insight deve ser diferente: aborde tendência, sazonalidade, produto, despesa e oportunidade
 - Seja específico ao negócio (ex: se tem "calça jeans" nos dados, mencione)
+- Se houver metas definidas (receita ou margem), compare o desempenho real vs. meta
 - Tom consultivo, não técnico — como o "papo do consultor"`,
       },
     ],
@@ -240,10 +269,10 @@ function generateRuleBased(transactions: Transaction[]): GeneratedInsight[] {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export async function generateInsights(transactions: Transaction[]): Promise<GeneratedInsight[]> {
+export async function generateInsights(transactions: Transaction[], ctx?: InsightBusinessContext): Promise<GeneratedInsight[]> {
   if (process.env.ANTHROPIC_API_KEY && transactions.length > 0) {
     try {
-      return await generateWithAI(transactions);
+      return await generateWithAI(transactions, ctx);
     } catch (err) {
       logger.error({ err }, "AI insight generation failed, falling back to rule-based");
     }
