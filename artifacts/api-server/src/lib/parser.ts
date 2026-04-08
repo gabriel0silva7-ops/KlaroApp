@@ -532,15 +532,16 @@ Extraia as transações financeiras individuais e retorne SOMENTE um CSV com as 
 data,descricao,valor
 
 Regras importantes:
-- Extraia apenas itens vendidos/comprados individualmente. NÃO inclua linhas de total, subtotal, saldo ou resumo (ex: "Total Dia", "Total", "Saldo", "Subtotal").
-- Se um item tiver quantidade (ex: "Água (3): 9,00"), o valor já é o total daquele item — use esse valor.
+- Extraia CADA linha de item individualmente. Se o mesmo produto aparece duas vezes, gere duas linhas separadas.
+- NÃO inclua linhas de total, subtotal ou resumo (ex: "Total Dia", "Total", "Saldo").
+- Se um item tiver quantidade entre parênteses (ex: "Água (3): 9,00"), use o valor total indicado (9.00). A quantidade é só informativa.
 - Datas no formato DD/MM/YYYY. Se houver uma data geral para o dia (ex: "14/05/24"), use-a para todos os itens daquele grupo.
-- Valores positivos para vendas/receitas/entradas. Negativos para compras/despesas/saídas.
+- Uma linha que começa com parênteses (ex: "(2 Cervejas, 1 Salgado) - Pagar seg") é um item SEPARADO, não uma anotação do item anterior.
+- Valores positivos para vendas/receitas/recebimentos (inclusive fiado recebido). Negativos para despesas.
+- Itens com "Pagar seg" ou "fiado aberto" sem valor especificado: omita.
 - Use ponto como separador decimal (ex: 13.00, não 13,00).
 - Use vírgula apenas para separar as colunas do CSV.
-- Se houver anotações como "pagar depois" ou "fiado", ainda assim inclua o item com seu valor correto.
-- Se a imagem tiver duas páginas ou seções semelhantes, extraia cada uma separadamente (não duplique).
-- Não inclua cabeçalho, não inclua explicações — retorne apenas as linhas CSV.
+- Não inclua cabeçalho nem explicações — retorne apenas as linhas CSV.
 - Se a imagem não contiver dados financeiros, retorne somente: SEM_DADOS`,
             },
           ],
