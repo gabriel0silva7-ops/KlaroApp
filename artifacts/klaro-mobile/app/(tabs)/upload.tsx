@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { getApiBaseUrl } from "@/constants/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 function UploadItem({
   item,
@@ -108,6 +109,7 @@ function UploadItem({
 export default function UploadScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { token } = useAuth();
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
 
@@ -146,6 +148,7 @@ export default function UploadScreen() {
 
       const res = await fetch(`${baseUrl}/api/uploads`, {
         method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       });
 
