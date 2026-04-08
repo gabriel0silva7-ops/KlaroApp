@@ -32,7 +32,7 @@ router.post("/insights/generate", requireAuth, async (req, res): Promise<void> =
   // Delete existing insights for the user (refresh)
   await db.delete(insightsTable).where(eq(insightsTable.userId, userId));
 
-  const generated = generateInsights(transactions);
+  const generated = await generateInsights(transactions);
 
   if (generated.length === 0) {
     res.json([]);
