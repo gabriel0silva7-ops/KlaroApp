@@ -163,8 +163,9 @@ export default function UploadScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await refetch();
       router.push(`/review/${upload.id}`);
-    } catch {
-      setUploadError("Erro ao selecionar arquivo.");
+    } catch (err) {
+      console.error("Upload error:", err);
+      setUploadError(`Erro: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setUploading(false);
     }
