@@ -77,10 +77,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       AsyncStorage.setItem(TOKEN_KEY, newToken),
       AsyncStorage.setItem(USER_KEY, JSON.stringify(newUser)),
     ]);
+    setAuthTokenGetter(() => newToken);
     setToken(newToken);
     setUser(newUser);
-    setAuthTokenGetter(() => newToken);
-  }, []);
+    queryClient.clear();
+  }, [queryClient]);
 
   const updateUser = useCallback(async (updatedUser: AuthUser) => {
     await AsyncStorage.setItem(USER_KEY, JSON.stringify(updatedUser));
