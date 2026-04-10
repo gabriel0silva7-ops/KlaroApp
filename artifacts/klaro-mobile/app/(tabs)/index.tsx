@@ -18,6 +18,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { GoalsCard } from "@/components/GoalsCard";
 import { MetricCard } from "@/components/MetricCard";
 import { TransactionRow } from "@/components/TransactionRow";
 import { useAuth } from "@/contexts/AuthContext";
@@ -119,6 +120,9 @@ export default function DashboardScreen() {
               sublabel="confirmadas"
             />
           </View>
+
+          {/* Goals */}
+          <GoalsCard />
 
           {/* Recent transactions */}
           <View style={styles.section}>
