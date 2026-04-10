@@ -148,8 +148,8 @@ export default function InsightsScreen() {
         </View>
       ) : (
         <FlatList
-          data={insights ?? []}
-          keyExtractor={(item) => String(item.id)}
+          data={Array.isArray(insights) ? insights : []}
+          keyExtractor={(item, index) => item?.id != null ? String(item.id) : `insight-${index}`}
           renderItem={({ item }) => (
             <InsightCard
               title={item.title}

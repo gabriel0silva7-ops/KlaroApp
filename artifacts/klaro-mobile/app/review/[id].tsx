@@ -201,7 +201,7 @@ export default function ReviewScreen() {
         <>
           <FlatList
             data={records}
-            keyExtractor={(item) => String(item.id)}
+            keyExtractor={(item, index) => item?.id != null ? String(item.id) : `record-${index}`}
             renderItem={({ item }) => {
               const isIncome = item.type === "income";
               const formattedAmount = new Intl.NumberFormat("pt-BR", {

@@ -85,8 +85,8 @@ export default function TransactionsScreen() {
         </View>
       ) : (
         <FlatList
-          data={transactions ?? []}
-          keyExtractor={(item) => String(item.id)}
+          data={Array.isArray(transactions) ? transactions.filter(Boolean) : []}
+          keyExtractor={(item, index) => item?.id != null ? String(item.id) : `tx-${index}`}
           renderItem={({ item }) => (
             <TransactionRow
               description={item.description}
@@ -96,7 +96,7 @@ export default function TransactionsScreen() {
               date={item.date}
             />
           )}
-          scrollEnabled={!!(transactions && transactions.length > 0)}
+          scrollEnabled={Array.isArray(transactions) && transactions.length > 0}
           refreshing={isLoading}
           onRefresh={refetch}
           contentContainerStyle={[

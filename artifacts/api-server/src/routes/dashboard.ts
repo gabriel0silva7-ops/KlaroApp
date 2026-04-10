@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, transactionsTable, rawInputsTable } from "@workspace/db";
+import { db, transactionsTable, rawInputsTable, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 
@@ -94,6 +94,76 @@ router.get("/dashboard/by-category", requireAuth, async (req, res): Promise<void
     .sort((a, b) => b.total - a.total);
 
   res.json(breakdown);
+});
+
+// GET /dashboard/goals — current month progress vs revenue and margin goals
+router.get("/dashboard/goals", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.session.userId!;
+
+  const [userRow] = await db
+    .select({ businessProfile: usersTable.businessProfile })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId));
+
+  const profile = userRow?.businessProfile;
+  const hasGoals = !!(profile?.monthlyRevenueGoal || profile?.profitMarginGoal);
+
+  if (!hasGoals) {
+    res.json({ hasGoals: false });
+    return;
+  }
+
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const monthStr = `${year}-${String(month).padStart(2, "0")}`;
+  const daysTotal = new Date(year, month, 0).getDate();
+  const daysElapsed = now.getDate();
+  const daysLeft = daysTotal - daysElapsed;
+
+  const allTx = await db
+    .select()
+    .from(transactionsTable)
+    .where(eq(transactionsTable.userId, userId));
+
+  const monthlyTx = allTx.filter((t) => t.date.startsWith(monthStr));
+
+  const currentIncome = monthlyTx
+    .filter((t) => t.type === "income")
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const currentExpenses = monthlyTx
+    .filter((t) => t.type === "expense")
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const result: Record<string, unknown> = { hasGoals: true };
+
+  if (profile?.monthlyRevenueGoal) {
+    const goal = profile.monthlyRevenueGoal;
+    const projected = daysElapsed > 0 ? (currentIncome / daysElapsed) * daysTotal : 0;
+    result.revenue = {
+      goal,
+      current: currentIncome,
+      projected: Math.round(projected),
+      percentage: Math.min(Math.round((currentIncome / goal) * 100), 100),
+      daysLeft,
+      onTrack: projected >= goal,
+    };
+  }
+
+  if (profile?.profitMarginGoal) {
+    const goal = profile.profitMarginGoal;
+    const currentMargin =
+      currentIncome > 0 ? ((currentIncome - currentExpenses) / currentIncome) * 100 : 0;
+    result.margin = {
+      goal,
+      current: Math.round(currentMargin * 10) / 10,
+      percentage: Math.min(Math.round((currentMargin / goal) * 100), 100),
+      onTrack: currentMargin >= goal,
+    };
+  }
+
+  res.json(result);
 });
 
 export default router;
