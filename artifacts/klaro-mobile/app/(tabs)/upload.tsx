@@ -258,10 +258,10 @@ export default function UploadScreen() {
         </View>
       ) : (
         <FlatList
-          data={uploads ?? []}
-          keyExtractor={(item) => String(item.id)}
+          data={Array.isArray(uploads) ? uploads : []}
+          keyExtractor={(item, index) => item?.id != null ? String(item.id) : `upload-${index}`}
           renderItem={({ item }) => <UploadItem item={item} />}
-          scrollEnabled={!!(uploads && uploads.length > 0)}
+          scrollEnabled={Array.isArray(uploads) && uploads.length > 0}
           refreshControl={
             <RefreshControl
               refreshing={isLoading}
