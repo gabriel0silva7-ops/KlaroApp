@@ -24,6 +24,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: "arrow.up.doc", selected: "arrow.up.doc.fill" }} />
         <Label>Upload</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="analytics">
+        <Icon sf={{ default: "chart.xyaxis.line", selected: "chart.xyaxis.line" }} />
+        <Label>Análise</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="insights">
         <Icon sf={{ default: "lightbulb", selected: "lightbulb.fill" }} />
         <Label>Insights</Label>
@@ -115,6 +119,18 @@ function ClassicTabLayout() {
               />
             ) : (
               <Feather name="upload" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="analytics"
+        options={{
+          title: "Análise",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="chart.xyaxis.line" tintColor={color} size={22} />
+            ) : (
+              <Feather name="trending-up" size={22} color={color} />
             ),
         }}
       />
