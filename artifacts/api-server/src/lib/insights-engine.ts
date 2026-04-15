@@ -6,6 +6,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "./logger";
+import { buildInsightsPrompt, getSegmentProfile } from "../prompts/builder";
 
 export interface GeneratedInsight {
   title: string;
@@ -128,51 +129,24 @@ async function generateWithAI(transactions: Transaction[], ctx?: InsightBusiness
   const months = [...groupByMonth(transactions).keys()].sort();
   const periodLabel = `${months[0]} a ${months[months.length - 1]}`;
 
-  // Build business context section for the prompt
-  const ctxLines: string[] = [];
-  if (ctx?.businessName) ctxLines.push(`Nome do negócio: ${ctx.businessName}`);
-  if (ctx?.segment) ctxLines.push(`Segmento: ${ctx.segment}`);
-  if (ctx?.city || ctx?.state) ctxLines.push(`Localização: ${[ctx.city, ctx.state].filter(Boolean).join(", ")}`);
-  if (ctx?.employeeCount !== undefined) ctxLines.push(`Funcionários: ${ctx.employeeCount}`);
-  if (ctx?.mainProducts) ctxLines.push(`Principais produtos/serviços: ${ctx.mainProducts}`);
-  if (ctx?.salesChannel) ctxLines.push(`Canal de vendas: ${ctx.salesChannel}`);
-  if (ctx?.monthlyRevenueGoal !== undefined) ctxLines.push(`Meta de receita mensal: R$${ctx.monthlyRevenueGoal.toFixed(2)}`);
-  if (ctx?.profitMarginGoal !== undefined) ctxLines.push(`Meta de margem de lucro: ${ctx.profitMarginGoal}%`);
-  if (ctx?.biggestChallenge) ctxLines.push(`Maior desafio: ${ctx.biggestChallenge}`);
-  const ctxSection = ctxLines.length > 0
-    ? `\nPERFIL DO NEGÓCIO:\n${ctxLines.map((l) => `  ${l}`).join("\n")}\n`
-    : "";
+  const promptText = buildInsightsPrompt(summary, {
+    businessName: ctx?.businessName,
+    segment: getSegmentProfile(ctx?.segment),
+    city: ctx?.city,
+    state: ctx?.state,
+    employeeCount: ctx?.employeeCount,
+    monthlyRevenueGoal: ctx?.monthlyRevenueGoal,
+    profitMarginGoal: ctx?.profitMarginGoal,
+    mainProducts: ctx?.mainProducts,
+    salesChannel: ctx?.salesChannel,
+    biggestChallenge: ctx?.biggestChallenge,
+    periodLabel,
+  });
 
   const response = await client.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 2048,
-    messages: [
-      {
-        role: "user",
-        content: `Você é um consultor financeiro especialista em pequenos e médios negócios brasileiros.
-Analise os dados financeiros abaixo e gere exatamente 5 insights práticos e acionáveis para o dono do negócio.
-${ctxSection}
-${summary}
-
-Retorne SOMENTE um JSON válido com este formato (sem markdown, sem explicações):
-[
-  {
-    "title": "Título curto do insight (máx 8 palavras)",
-    "description": "Análise em 2-3 frases, com números concretos do resumo acima. Tom direto como um consultor falando com o dono da loja.",
-    "recommendation": "1 ação concreta e específica que o dono pode fazer agora. Máx 2 frases.",
-    "periodLabel": "${periodLabel}"
-  }
-]
-
-Diretrizes:
-- Use linguagem simples, direta, como conversa entre amigos
-- Cite números reais do resumo (R$, %, meses)
-- Cada insight deve ser diferente: aborde tendência, sazonalidade, produto, despesa e oportunidade
-- Seja específico ao negócio (ex: se tem "calça jeans" nos dados, mencione)
-- Se houver metas definidas (receita ou margem), compare o desempenho real vs. meta
-- Tom consultivo, não técnico — como o "papo do consultor"`,
-      },
-    ],
+    messages: [{ role: "user", content: promptText }],
   });
 
   const raw = response.content[0].type === "text" ? response.content[0].text.trim() : "[]";
