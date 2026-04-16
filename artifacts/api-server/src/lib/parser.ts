@@ -3,6 +3,7 @@ import path from "path";
 import * as XLSX from "xlsx";
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "./logger";
+import { buildOcrPrompt, getSegmentProfile } from "../prompts/builder";
 
 export interface ParseBusinessContext {
   businessName?: string;
@@ -516,15 +517,12 @@ export async function extractImageText(filePath: string, ctx?: ParseBusinessCont
   const ext = path.extname(filePath).toLowerCase().replace(".", "");
   const mediaType = IMAGE_MEDIA_TYPES[ext] ?? "image/jpeg";
 
-  // Build optional business context hint for better OCR accuracy
-  const ctxLines: string[] = [];
-  if (ctx?.businessName) ctxLines.push(`- Nome do negócio: ${ctx.businessName}`);
-  if (ctx?.segment) ctxLines.push(`- Segmento: ${ctx.segment}`);
-  if (ctx?.mainProducts) ctxLines.push(`- Principais produtos/serviços: ${ctx.mainProducts}`);
-  if (ctx?.salesChannel) ctxLines.push(`- Canal de vendas: ${ctx.salesChannel}`);
-  const ctxSection = ctxLines.length > 0
-    ? `\nContexto do negócio (use para interpretar melhor os dados):\n${ctxLines.join("\n")}\n`
-    : "";
+  const promptText = buildOcrPrompt({
+    businessName: ctx?.businessName,
+    segment: getSegmentProfile(ctx?.segment),
+    mainProducts: ctx?.mainProducts,
+    salesChannel: ctx?.salesChannel,
+  });
 
   try {
     const imageData = fs.readFileSync(absPath);
@@ -541,26 +539,7 @@ export async function extractImageText(filePath: string, ctx?: ParseBusinessCont
               type: "image",
               source: { type: "base64", media_type: mediaType, data: base64 },
             },
-            {
-              type: "text",
-              text: `Você é um assistente especializado em extração de dados financeiros de imagens.
-Analise esta imagem (pode ser extrato bancário, caderno de anotações, nota fiscal, recibo, etc.).
-Extraia as transações financeiras individuais e retorne SOMENTE um CSV com as colunas:
-data,descricao,valor
-${ctxSection}
-Regras importantes:
-- Extraia CADA linha de item individualmente. Se o mesmo produto aparece duas vezes, gere duas linhas separadas.
-- NÃO inclua linhas de total, subtotal ou resumo (ex: "Total Dia", "Total", "Saldo").
-- Se um item tiver quantidade entre parênteses (ex: "Água (3): 9,00"), use o valor total indicado (9.00). A quantidade é só informativa.
-- Datas no formato DD/MM/YYYY. Se houver uma data geral para o dia (ex: "14/05/24"), use-a para todos os itens daquele grupo.
-- Uma linha que começa com parênteses (ex: "(2 Cervejas, 1 Salgado) - Pagar seg") é um item SEPARADO, não uma anotação do item anterior.
-- Valores positivos para vendas/receitas/recebimentos (inclusive fiado recebido). Negativos para despesas.
-- Itens com "Pagar seg" ou "fiado aberto" sem valor especificado: omita.
-- Use ponto como separador decimal (ex: 13.00, não 13,00).
-- Use vírgula apenas para separar as colunas do CSV.
-- Não inclua cabeçalho nem explicações — retorne apenas as linhas CSV.
-- Se a imagem não contiver dados financeiros, retorne somente: SEM_DADOS`,
-            },
+            { type: "text", text: promptText },
           ],
         },
       ],
